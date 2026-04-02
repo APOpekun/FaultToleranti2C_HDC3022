@@ -2,6 +2,8 @@ import time
 import board
 import digitalio
 import displayio
+import busio
+from adafruit_displayio_sh1107 import SH1107
 import adafruit_hdc302x
 import terminalio
 from adafruit_display_text import label
@@ -9,25 +11,24 @@ from adafruit_display_text import label
 # Release any resources currently in use for the displays
 displayio.release_displays()
 
-# SH1107 is vertically oriented 64x128
-WIDTH = 128
-HEIGHT = 64
+# Initialize I2C
+i2c = busio.I2C(board.SCL, board.SDA)
 
-display = adafruit_displayio_sh1107.SH1107(display_bus, width=WIDTH, height=HEIGHT, rotation=0)
+# Initialize display
+display_bus = displayio.I2CDisplay(i2c, device_address=0x3C)
+WIDTH = 64
+HEIGHT = 128
+display = SH1107(display_bus, width=HEIGHT, height=WIDTH, rotation=0)
 
 # Make the display context
 splash = displayio.Group()
 display.root_group = splash
 
-# Use for I2C
-i2c = board.I2C()  # uses board.SCL and board.SDA
-display_bus = displayio.I2CDisplay(i2c, device_address=0x3C)
-
 #define the 4 sensors
-sensor0 = adafruit_hdc302x.HDC302x(i2c, device_address=0x44)
-sensor1 = adafruit_hdc302x.HDC302x(i2c, device_address=0x45)
-sensor2 = adafruit_hdc302x.HDC302x(i2c, device_address=0x46)
-sensor3 = adafruit_hdc302x.HDC302x(i2c, device_address=0x47)
+sensor0 = adafruit_hdc302x.HDC302x(i2c, address=0x44)
+sensor1 = adafruit_hdc302x.HDC302x(i2c, address=0x45)
+sensor2 = adafruit_hdc302x.HDC302x(i2c, address=0x46)
+sensor3 = adafruit_hdc302x.HDC302x(i2c, address=0x47)
 
 # Define button inputs
 button_a = digitalio.DigitalInOut(board.D9)
@@ -56,17 +57,17 @@ time.sleep(1)  # Simulate reading time
 
 #Buttons
 # For main menu use this menu
-#Button A Manual 
+#Button A Manual
 #Button B <blank>
 #Button C Auto
 
 # For 1-10 use this menu
-#Button A Prev 
+#Button A Prev
 #Button B ESC
 #Button C Next
 
 # For 11 use this menu
-#Button A Stop 
+#Button A Stop
 #Button B ESC
 #Button C Run
 
@@ -75,7 +76,7 @@ STATE_MAIN_MENU = 0 # Start Here
 
 
 STATE_AQUIRE = 1 #Quad Display Sensor Health
-#Try to query each sensor with the commands below if the sensor does not respond return the float 
+#Try to query each sensor with the commands below if the sensor does not respond return the float
 #use a single function like safe_read(sensor) that returns (temp, rh) with fallback values
 ##Accepted range
 TEMP_MIN = -40.0
@@ -178,12 +179,12 @@ STATE_OUTPUT = 10
 #if only 2 sensors are used put an Astrics
 
 STATE_RUN = 11
-Take the function blocks use in all the previous states and chain them. the screen matches 10. this is the live dash board update 1Hz with reconfigurable delay
+#Take the function blocks use in all the previous states and chain them. the screen matches 10. this is the live dash board update 1Hz with reconfigurable delay
 
 
 
 
-#follow the transition table 
+#follow the transition table
 #Btn A is Prev Where logically allowed
 #Btn B is Escape to main menu
 #Btn C is Next Where logically allowed
@@ -730,7 +731,6 @@ transition_table = {
 render_current_state()
 
 while True:
-    global last_a, last_b, last_c, current_state, run_enabled
 
     # Read current button values
     va = button_a.value
