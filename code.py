@@ -386,36 +386,30 @@ def draw_main_menu():
     splash.append(c_label)
 
 
-def draw_quad(title_char, values, labels, units=None):
+def draw_quad(title,values, labels, units=None):
     # values: list of 4 strings already formatted
     black_screen()
-    center_label = label.Label(
-        terminalio.FONT,
-        text=title_char,
-        color=0xFFFFFF,
-        x=WIDTH // 2 - 3,
-        y=HEIGHT // 2 + 4,
-    )
-    splash.append(center_label)
+    title_label = label.Label(terminalio.FONT,
+    text=title,
+    color=0xFFFFFF,
+    x=2,y=10)
+    splash.append(title_label)
 
     # Quadrant positions (approximate centers)
     positions = [
-        (8, 16),   # top-left
-        (72, 16),  # top-right
-        (8, 48),   # bottom-left
-        (72, 48),  # bottom-right
-    ]
+        (12, 12),   # row1
+        (12, 24),  # row2
+        (12, 36),   # row3
+        (12, 48),  # row4
+        ]
 
     for i in range(4):
         x, y = positions[i]
         text = "{} {}".format(labels[i], values[i])
-        lbl = label.Label(
-            terminalio.FONT,
+        lbl = label.Label(terminalio.FONT,
             text=text,
             color=0xFFFFFF,
-            x=x,
-            y=y,
-        )
+            x=x,y=y)
         splash.append(lbl)
 
 
@@ -432,14 +426,14 @@ def draw_dual(title, left_label, left_value, right_label, right_value):
         terminalio.FONT,
         text="{} {}".format(left_label, left_value),
         color=0xFFFFFF,
-        x=2,
-        y=36,
+        x=12,
+        y=24,
     )
     right = label.Label(
         terminalio.FONT,
         text="{} {}".format(right_label, right_value),
         color=0xFFFFFF,
-        x=WIDTH // 2 + 2,
+        x=12,
         y=36,
     )
     splash.append(title_label)
