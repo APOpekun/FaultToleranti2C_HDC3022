@@ -7,6 +7,8 @@ from adafruit_displayio_sh1107 import SH1107
 import adafruit_hdc302x
 import terminalio
 from adafruit_display_text import label
+import sys
+import supervisor
 
 # Release any resources currently in use for the displays
 displayio.release_displays()
@@ -24,7 +26,7 @@ display = SH1107(display_bus, width=HEIGHT, height=WIDTH, rotation=0)
 splash = displayio.Group()
 display.root_group = splash
 
-#define the 4 sensors
+# define the 4 sensors
 sensor0 = adafruit_hdc302x.HDC302x(i2c, address=0x44)
 sensor1 = adafruit_hdc302x.HDC302x(i2c, address=0x45)
 sensor2 = adafruit_hdc302x.HDC302x(i2c, address=0x46)
@@ -43,6 +45,17 @@ last_a = button_a.value
 last_b = button_b.value
 last_c = button_c.value
 
+# Accepted range
+TEMP_MIN = -40.0
+TEMP_MAX = 125.0
+RH_MIN = 0.0
+RH_MAX = 100.0
+# Sensor Health array 1=good, 0=bad
+sensor_health = [1, 1, 1, 1]
+
+# Fall back
+ERROR = -100.00
+
 # Function to clear the screen
 def black_screen():
     for i in range(len(splash)):
@@ -60,8 +73,8 @@ splash.append(face)
 display.refresh()
 time.sleep(1)  # Simulate reading time
 
-#This code wil capture data from the sensors and send it to the UART stream.
- 
+# This code wil capture data from the sensors and send it to the UART stream.
+
 # Snapshot storage
 temps = [ERROR, ERROR, ERROR, ERROR]
 rhs = [ERROR, ERROR, ERROR, ERROR]
@@ -76,7 +89,7 @@ def safe_read(sensor):
         return t, h, 1
     except Exception:
         return ERROR, ERROR, 0
-        
+
 def clear_and_title(title):
     black_screen()
     title_label = label.Label(
@@ -87,44 +100,36 @@ def clear_and_title(title):
         y=10,
     )
     splash.append(title_label)
-
-
 def scpi_sample(n):
-    for _ in range(n):
+    row = f"Number,t0,h0,t1,h1,t2,h2,t3,h3"
+    print(row)
+    for N in range(n):
         t0, h0, _ = safe_read(sensor0)
         t1, h1, _ = safe_read(sensor1)
         t2, h2, _ = safe_read(sensor2)
         t3, h3, _ = safe_read(sensor3)
 
-        row = f"{t0:.3f},{h0:.3f},{t1:.3f},{h1:.3f},{t2:.3f},{h2:.3f},{t3:.3f},{h3:.3f}"
+        row = f"{N},{t0:.3f},{h0:.3f},{t1:.3f},{h1:.3f},{t2:.3f},{h2:.3f},{t3:.3f},{h3:.3f}"
         print(row)
         time.sleep(0.1)  # sampling interval (adjust as needed)
-    
+scpi_sample(250)
 
-import sys
-import supervisor
-
-def read_command():
-    """Return a full line from USB/serial if available, else None."""
-    if supervisor.runtime.serial_bytes_available:
-        line = sys.stdin.readline().strip()
-        return line.upper()
-    return None
-    
-while True:
-    cmd = read_command()
-    if cmd:
-        if cmd.startswith("SAMPLE"):
-            try:
-                _, n_str = cmd.split()
-                n = int(n_str)
-                print(f"# SAMPLING {n} ROWS")
-                scpi_sample(n)
-                print("# DONE")
-            except Exception as e:
-                print(f"# ERROR: {e}")
-
-    # your display/UI logic continues here
-    acquire_snapshot()
-    display.refresh()
-    time.sleep(0.05)
+# def read_command():
+#     """Return a full line from USB/serial if available, else None."""
+#     if supervisor.runtime.serial_bytes_available:
+#         line = sys.stdin.readline().strip()
+#         return line.upper()
+#     return None
+# while True:
+#     cmd = read_command()
+#     if cmd:
+#         if cmd.startswith("SAMPLE"):
+#             try:
+#                 _, n_str = cmd.split()
+#                 n = int(n_str)
+#                 print(f"# SAMPLING {n} ROWS")
+#                 scpi_sample(n)
+#                 print("# DONE")
+#             except Exception as e:
+#                 print(f"# ERROR: {e}")
+#     time.sleep(0.05)
