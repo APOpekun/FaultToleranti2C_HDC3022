@@ -1,3 +1,4 @@
+import microcontroller
 import time
 import board
 import digitalio
@@ -26,7 +27,10 @@ HEIGHT = 64
 BORDER = 2
 
 display = adafruit_displayio_sh1107.SH1107(
-    display_bus, width=WIDTH, height=HEIGHT, rotation=0
+    display_bus,
+    width=WIDTH,
+    height=HEIGHT,
+    rotation=0
 )
 
 #initialize the sensors
@@ -39,10 +43,30 @@ ERROR = -100.00
 sensor_health = [1] * 8
 
 # Initialize 8 MCP9808 sensors
-TempSens = [
-    adafruit_mcp9808.MCP9808(i2c, address=0x18 + i)
-    for i in range(8)
-]
+TempSens = [adafruit_mcp9808.MCP9808(i2c, address=0x18 + i) for i in range(8)]
+
+for addr in range(0x18, 0x20):
+    try:
+        adafruit_mcp9808.MCP9808(i2c, address=addr)
+
+        print("Found:", hex(addr))
+    except Exception:
+        print(Exception)
+        print("Missing:", hex(addr))
+
+for sensor in TempSens: #Set Resolutions to
+    sensor.resolution = 3
+    """
+    Temperature Resolution in Celsius
+    =======   ============   ==============
+    Value     Resolution     Reading Time
+    =======   ============   ==============
+    0          0.5°C            30 ms
+    1          0.25°C           65 ms
+    2         0.125°C          130 ms
+    3         0.0625°C         250 ms
+    =======   ============   ==============
+    """
 
 # Make the display context
 splash = displayio.Group()
@@ -67,13 +91,6 @@ def black_screen():
             splash.pop()
         except:
             pass
-            
-# Define states
-STATE_MAIN_MENU = 0 # Start Here
-
-
-STATE_AQUIRE = 1 
-#use a loop to query each sensor through safe_read(sensor) that returns (temp) with fallback values
 
 def safe_read(sensor):
     try:
@@ -83,7 +100,7 @@ def safe_read(sensor):
         return t, 1
     except Exception:
         return ERROR, 0
-        
+
 #not sure which is faster on Time return GPS or RTC
 #if RTC is faster then update RTC from GPS every ... 5 or 10 minutes? at the point where drift gets too much
 def Aquire():
@@ -94,8 +111,19 @@ def Aquire():
         sensor_health[i] = ok
         temps.append(t)
     timestamp2 = "Day Mon N HH:MM:SS.ssss YYYY" #from GPS or RTC Not available yet
-    return timestamp1,temps,timestamp2
+    return temps
 
+text = "T0: {:.2f} C".format(TempSens[0].temperature)
+
+text_area = label.Label(
+    terminalio.FONT,
+    text=text,
+    color=0xFFFFFF,
+    x=0,
+    y=10,
+)
+N = 0
 while True:
-    print(Aquire())
-    time.sleep(5)
+    N = N+1
+    print([N,Aquire()])
+    time.sleep(0.125)
