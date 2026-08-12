@@ -140,11 +140,21 @@ text_area = label.Label(
 N = 0
 last_time = time.monotonic()
 while True:
+    # Make the display context
+    screen = displayio.Group()
     gps.update()
     current_time = time.monotonic()
     
     if current_time - last_time >= 1.0:
+        battLVLs = [max17.cell_voltage,max17.cell_percent]
+        print(f"Battery voltage: {battLVLs[0]:.2f} Volts")
+        print(f"Battery state  : {battLVLs[1]:.1f} %")
+        print("")
+        
+        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:05.2f} V", color=0xFFFFFF, x=5, y=110))
+        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[1]:05.2f} %", color=0xFFFFFF, x=5, y=122))
         last_time = current_time
+        
         if not gps.has_fix:
             # Try again if we don't have a fix yet.
             
@@ -153,8 +163,6 @@ while True:
             
             text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
             
-            # Make the display context
-            screen = displayio.Group()
             screen.append(text_area)
             display.root_group = screen
             continue
@@ -179,17 +187,8 @@ while True:
         print(f"Fix quality: {gps.fix_quality}")
         
         temps = Aquire()
-        battLVLs = [max17.cell_voltage,max17.cell_percent]
-        print(f"Battery voltage: {battLVLs[0]:.2f} Volts")
-        print(f"Battery state  : {battLVLs[1]:.1f} %")
-        print("")
-        
-        # Make the display context
-        screen = displayio.Group()
         for i, temp in enumerate(temps):
             addr_text = f"{temp:06.4f}"
             text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8+ i * 12)
             screen.append(text_area)
-        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:05.2f} V", color=0xFFFFFF, x=5, y=110))
-        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[1]:05.2f} %", color=0xFFFFFF, x=5, y=122))
         display.root_group = screen
