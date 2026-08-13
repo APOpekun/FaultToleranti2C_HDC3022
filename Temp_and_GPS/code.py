@@ -12,12 +12,16 @@ import terminalio
 import adafruit_mcp9808 #for the Temperature Sensor
 import adafruit_max1704x # for the Battery Monitor
 import adafruit_gps #reserved for GPS
+
+from adafruit_pcf8523.pcf8523 import PCF8523 #reserved for RTC
 #Reserved for SD card ReadWrite
 # Initialize display
 displayio.release_displays()
 
 # Initialize I2C
 i2c = busio.I2C(board.SCL, board.SDA)
+
+rtc = PCF8523(i2c)
 
 #initialize GPS 
 # Connect UART rx to GPS module TX, and UART tx to GPS module RX.
@@ -120,13 +124,31 @@ def safe_read(sensor):
 #if RTC is faster then update RTC from GPS every ... 5 or 10 minutes? at the point where drift gets too much
 def Aquire():
     temps = []
-    timestamp1 = "Day Mon N HH:MM:SS.ssss YYYY" #from GPS or RTC Not available yet
     for i, sensor in enumerate(TempSens):
         t, ok = safe_read(sensor)
         sensor_health[i] = ok
         temps.append(t)
-    timestamp2 = "Day Mon N HH:MM:SS.ssss YYYY" #from GPS or RTC Not available yet
+    #timestamp = "Day Mon N HH:MM:SS.ssss YYYY" #from GPS or RTC Not available yet
     return temps
+
+def PrintGPS(gps):
+    print("=" * 40)  # Print a separator line.
+    print(
+        "Fix timestamp: {}/{}/{} {:02}:{:02}:{:02}".format(  # noqa: UP032
+            gps.timestamp_utc.tm_mon,  # Grab parts of the time from the
+            gps.timestamp_utc.tm_mday,  # struct_time object that holds
+            gps.timestamp_utc.tm_year,  # the fix time.  Note you might
+            gps.timestamp_utc.tm_hour,  # not get all data like year, day,
+            gps.timestamp_utc.tm_min,  # month!
+            gps.timestamp_utc.tm_sec,
+        )
+    )
+    print(f"Latitude: {gps.latitude:.6f} degrees")
+    print(f"Longitude: {gps.longitude:.6f} degrees")
+    print(f"Precise Latitude: {gps.latitude_degrees} degs, {gps.latitude_minutes:2.4f} mins")
+    print(f"Precise Longitude: {gps.longitude_degrees} degs, {gps.longitude_minutes:2.4f} mins")
+    print(f"Fix quality: {gps.fix_quality}")
+
 
 text = "T0: {:.2f} C".format(TempSens[0].temperature)
 
@@ -139,6 +161,7 @@ text_area = label.Label(
 )
 N = 0
 last_time = time.monotonic()
+rtc_lock = False
 while True:
     # Make the display context
     screen = displayio.Group()
@@ -151,44 +174,52 @@ while True:
         print(f"Battery state  : {battLVLs[1]:.1f} %")
         print("")
         
-        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:05.2f} V", color=0xFFFFFF, x=5, y=110))
-        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[1]:05.2f} %", color=0xFFFFFF, x=5, y=122))
+        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:4.2f}V {battLVLs[1]:3.0f}%", color=0xFFFFFF, x=5, y=122))
         last_time = current_time
         
-        if not gps.has_fix:
+        if not gps.has_fix and not rtc_lock:
             # Try again if we don't have a fix yet.
             
-            addr_text = "Waiting\nfor\nfix..."
+            addr_text = "No GPS fix"
             print(addr_text)
-            
             text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
             
             screen.append(text_area)
             display.root_group = screen
-            continue
-        
-        # We have a fix! (gps.has_fix is true)
-        # Print out details about the fix like location, date, etc.
-        print("=" * 40)  # Print a separator line.
-        print(
-            "Fix timestamp: {}/{}/{} {:02}:{:02}:{:02}".format(  # noqa: UP032
-                gps.timestamp_utc.tm_mon,  # Grab parts of the time from the
-                gps.timestamp_utc.tm_mday,  # struct_time object that holds
-                gps.timestamp_utc.tm_year,  # the fix time.  Note you might
-                gps.timestamp_utc.tm_hour,  # not get all data like year, day,
-                gps.timestamp_utc.tm_min,  # month!
+            
+            
+        if gps.has_fix and not rtc_lock:
+            # We have a fix! (gps.has_fix is true)
+            PrintGPS(gps)
+            # you must set year, mon, date, hour, min, sec and weekday
+            # yearday is not supported, isdst can be set but we don't do anything with it at this time
+            # Print out details about the fix like location, date, etc.
+            #year, mon, date, hour, min, sec, wday, yday, isdst
+            t = time.struct_time((
+                gps.timestamp_utc.tm_year,
+                gps.timestamp_utc.tm_mon,
+                gps.timestamp_utc.tm_mday,
+                gps.timestamp_utc.tm_hour,
+                gps.timestamp_utc.tm_min,
                 gps.timestamp_utc.tm_sec,
-            )
-        )
-        print(f"Latitude: {gps.latitude:.6f} degrees")
-        print(f"Longitude: {gps.longitude:.6f} degrees")
-        print(f"Precise Latitude: {gps.latitude_degrees} degs, {gps.latitude_minutes:2.4f} mins")
-        print(f"Precise Longitude: {gps.longitude_degrees} degs, {gps.longitude_minutes:2.4f} mins")
-        print(f"Fix quality: {gps.fix_quality}")
-        
+                0, -1, -1))
+            print("Setting time to:", t)  # uncomment for debugging
+            rtc.datetime = t
+            rtc_lock = True
+            
+        #if gps.has_fix and rtc_lock:
+            #compare RTC and GPS and correct the RTC as needed
+        if not gps.has_fix and rtc_lock:
+            addr_text = "RTC Time"
+            print(addr_text)
+            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
         temps = Aquire()
+        t = rtc.datetime
+        
         for i, temp in enumerate(temps):
             addr_text = f"{temp:06.4f}"
-            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8+ i * 12)
+            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=20 + i * 12)
             screen.append(text_area)
+            
+        text_area = label.Label(terminalio.FONT, text=f"{t.tm_hour}:{t.tm_min:02}:{t.tm_sec:02}", color=0xFFFFFF, x=5, y=100)
         display.root_group = screen
