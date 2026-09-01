@@ -14,12 +14,30 @@ import adafruit_max1704x # for the Battery Monitor
 import adafruit_gps #reserved for GPS
 
 from adafruit_pcf8523.pcf8523 import PCF8523 #reserved for RTC
+
 #Reserved for SD card ReadWrite
+import storage
+import adafruit_sdcard
+import os
+
 # Initialize display
 displayio.release_displays()
 
 # Initialize I2C
 i2c = busio.I2C(board.SCL, board.SDA)
+
+# SD card SPI
+spi = busio.SPI(board.SCK, board.MOSI, board.MISO)
+cs = digitalio.DigitalInOut(board.D10)  # change if your CS pin is different
+
+sdcard = adafruit_sdcard.SDCard(spi, cs)
+vfs = storage.VfsFat(sdcard)
+storage.mount(vfs, "/sd")
+print("SD card mounted.")
+logfile = None
+
+
+
 
 rtc = PCF8523(i2c)
 
@@ -290,6 +308,14 @@ while True:
                 print("GPS locked. Autostart logging.")
                 state = STATE_LOGGING
                 last_log_time = now  # align logging start
+                # Open SD file
+                try:
+                    logfile = open("/sd/data.csv", "a")
+                    logfile.write("Date,Time,T0,T1,T2,T3,T4,T5,T6,T7,Voltage,Percent\n")
+                    logfile.flush()
+                    print("SD logging started.")
+                except Exception as e:
+                    print("SD open error:", e)
         else:
             gps_lock_counter = 0
 
@@ -306,6 +332,14 @@ while True:
         # Toggle logging on/off with B
         if b_press:
             print("Logging stopped. Returning to idle.")
+            if logfile:
+                try:
+                    logfile.flush()
+                    logfile.close()
+                    print("SD file closed.")
+                except Exception as e:
+                    print("SD close error:", e)
+                logfile = None
             state = STATE_IDLE
             continue
         # 1 Hz logging
@@ -320,7 +354,13 @@ while True:
             
             print(row)  # serial monitor; later: write to SD
                 
-                #WRITE TO SD CARD HERE
+            #WRITE TO SD CARD HERE
+            if logfile:
+                try:
+                    logfile.write(row + "\n")
+                    logfile.flush()
+                except Exception as e:
+                    print("SD write error:", e)
                 
             screen = displayio.Group()
             screen.append(label.Label(terminalio.FONT,
