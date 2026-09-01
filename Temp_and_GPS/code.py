@@ -145,17 +145,16 @@ def safe_read(sensor):
 #not sure which is faster on Time return GPS or RTC
 #if RTC is faster then update RTC from GPS every ... 5 or 10 minutes? at the point where drift gets too much
 def sync_rtc_from_gps(gps, rtc):
+    # Must have fix AND valid timestamp
     if not gps.has_fix or gps.timestamp_utc is None:
+        print("RTC sync skipped: no GPS fix")
         return
-
     ts = gps.timestamp_utc
-
     # PCF8523 stores year as 0–99 (representing 2000–2099)
     rtc_year = ts.tm_year - 2000
     if rtc_year < 0 or rtc_year > 99:
         print("RTC year out of range:", rtc_year)
         return
-
     t = time.struct_time((
         rtc_year,          # YEAR (0–99)
         ts.tm_mon,         # MONTH
@@ -167,7 +166,6 @@ def sync_rtc_from_gps(gps, rtc):
         ts.tm_yday,        # YEARDAY (ignored)
         -1                 # isdst (ignored)
     ))
-
     rtc.datetime = t
     print("RTC synced from GPS:", t)
 
@@ -311,7 +309,9 @@ while True:
                 
                 row = build_csv_row(gps, temps, v, p)
                 print(row)  # serial monitor; later: write to SD
-            
+                
+                #WRITE TO SD CARD HERE
+                
                 screen = displayio.Group()
                 screen.append(label.Label(terminalio.FONT,
                                           text="LOGGING",
