@@ -126,7 +126,7 @@ last_log_time = 0.0          # for 1 Hz logging
 LOG_PERIOD    = 1.0          # seconds
 
 last_rtc_sync = 0.0          # for GPS→RTC discipline
-RTC_SYNC_PERIOD = 600.0      # seconds (10 minutes)
+RTC_SYNC_PERIOD = 60.0      # seconds (10 minutes)
 
 def button_pressed(btn, last):
     pressed = (last and not btn.value)
@@ -155,10 +155,9 @@ def sync_rtc_from_gps(gps, rtc):
     if ts.tm_year < 2000 or ts.tm_year > 2099:
         print("RTC sync skipped: GPS year invalid:", ts.tm_year)
         return
-    # PCF8523 stores year as 0–99 (representing 2000–2099)
-    rtc_year = ts.tm_year - 2000  # convert 2026 → 26
+    # PCF8523 stores year as 0–99 (representing 2000–2099) the conversion is handled internally
     t = time.struct_time((
-        rtc_year,          # YEAR (0–99)
+        ts.tm_year,          # YEAR (0–99)
         ts.tm_mon,         # MONTH
         ts.tm_mday,        # DAY
         ts.tm_hour,        # HOUR
@@ -170,6 +169,15 @@ def sync_rtc_from_gps(gps, rtc):
     ))
     rtc.datetime = t
     print("RTC synced from GPS:", t)
+    
+def TS_from_gps_rtc(gps, rtc):
+    # Must have fix AND valid timestamp
+    if not gps.has_fix or gps.timestamp_utc is None:
+        ts = rtc.datetime
+        
+    else:
+        ts = gps.timestamp_utc
+    return ts
 
 
 def Aquire(Sensors):
@@ -198,8 +206,7 @@ def PrintGPS(gps):
     print(f"Fix quality: {gps.fix_quality}")
     print("=" * 40)  # Print a separator line.
 
-def build_csv_row(gps, temps, v, p):
-    ts = gps.timestamp_utc
+def build_csv_row(ts, temps, v, p):
     date_str = f"{ts.tm_year:04d}-{ts.tm_mon:02d}-{ts.tm_mday:02d}"
     time_str = f"{ts.tm_hour:02d}:{ts.tm_min:02d}:{ts.tm_sec:02d}"
 
@@ -304,41 +311,30 @@ while True:
         # 1 Hz logging
         if (now - last_log_time) >= LOG_PERIOD:
             last_log_time = now
+            ts = TS_from_gps_rtc(gps, rtc)
             temps = Aquire(TempSens)
             v = max17.cell_voltage
             p = max17.cell_percent
-            if gps.has_fix and gps.timestamp_utc is not None:
-                
-                row = build_csv_row(gps, temps, v, p)
-                print(row)  # serial monitor; later: write to SD
+
+            row = build_csv_row(ts, temps, v, p)
+            
+            print(row)  # serial monitor; later: write to SD
                 
                 #WRITE TO SD CARD HERE
                 
-                screen = displayio.Group()
-                screen.append(label.Label(terminalio.FONT,
-                                          text="LOGGING",
-                                          color=0xFFFFFF, x=5, y=10))
+            screen = displayio.Group()
+            screen.append(label.Label(terminalio.FONT,
+                            text="LOGGING",
+                            color=0xFFFFFF, x=5, y=10))
 
-                # Display temps
-                for i, t in enumerate(temps):
-                    screen.append(label.Label(terminalio.FONT,
-                                              text=f"T{i}: {t:0.4f}",
-                                              color=0xFFFFFF, x=5, y=25 + i*12))
+            # Display temps
+            for i, t in enumerate(temps):
+                screen.append(label.Label(terminalio.FONT,
+                    text=f"T{i}: {t:0.4f}",
+                    color=0xFFFFFF, x=5, y=25 + i*12))
 
-                # Battery
-                screen.append(label.Label(terminalio.FONT,
-                                          text=f"{v:.2f}V {p:.1f}%",
-                                          color=0xFFFFFF, x=5, y=120))
-                display.root_group = screen
-                
-            else:
-                print("NOFIX")
-                screen = displayio.Group()
-                screen.append(label.Label(terminalio.FONT,
-                                          text="LOGGING\nNOFIX",
-                                          color=0xFFFFFF, x=5, y=10))
-                # Battery
-                screen.append(label.Label(terminalio.FONT,
-                                          text=f"{v:.2f}V {p:.1f}%",
-                                          color=0xFFFFFF, x=5, y=120))
-                display.root_group = screen
+            # Battery
+            screen.append(label.Label(terminalio.FONT,
+                text=f"{v:.2f}V {p:.1f}%",
+                color=0xFFFFFF, x=5, y=120))
+            display.root_group = screen
