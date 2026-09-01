@@ -150,11 +150,13 @@ def sync_rtc_from_gps(gps, rtc):
         print("RTC sync skipped: no GPS fix")
         return
     ts = gps.timestamp_utc
-    # PCF8523 stores year as 0–99 (representing 2000–2099)
-    rtc_year = ts.tm_year - 2000
-    if rtc_year < 0 or rtc_year > 99:
-        print("RTC year out of range:", rtc_year)
+    
+    # GPS sometimes reports year=0 briefly even after fix
+    if ts.tm_year < 2000 or ts.tm_year > 2099:
+        print("RTC sync skipped: GPS year invalid:", ts.tm_year)
         return
+    # PCF8523 stores year as 0–99 (representing 2000–2099)
+    rtc_year = ts.tm_year - 2000  # convert 2026 → 26
     t = time.struct_time((
         rtc_year,          # YEAR (0–99)
         ts.tm_mon,         # MONTH
