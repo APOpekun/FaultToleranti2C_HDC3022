@@ -114,6 +114,25 @@ last_a = button_a.value
 last_b = button_b.value
 last_c = button_c.value
 
+STATE_IDLE = 0
+STATE_GPS_WAIT = 1
+STATE_LOGGING = 2
+
+state = STATE_IDLE
+gps_lock_counter = 0
+GPS_LOCK_REQUIRED = 25   # seconds of stable fix
+
+last_log_time = 0.0          # for 1 Hz logging
+LOG_PERIOD    = 1.0          # seconds
+
+last_rtc_sync = 0.0          # for GPS→RTC discipline
+RTC_SYNC_PERIOD = 600.0      # seconds (10 minutes)
+
+def button_pressed(btn, last):
+    pressed = (last and not btn.value)
+    return pressed
+
+
 def safe_read(sensor):
     try:
         t = sensor.temperature
@@ -125,6 +144,34 @@ def safe_read(sensor):
 
 #not sure which is faster on Time return GPS or RTC
 #if RTC is faster then update RTC from GPS every ... 5 or 10 minutes? at the point where drift gets too much
+def sync_rtc_from_gps(gps, rtc):
+    if not gps.has_fix or gps.timestamp_utc is None:
+        return
+
+    ts = gps.timestamp_utc
+
+    # PCF8523 stores year as 0–99 (representing 2000–2099)
+    rtc_year = ts.tm_year - 2000
+    if rtc_year < 0 or rtc_year > 99:
+        print("RTC year out of range:", rtc_year)
+        return
+
+    t = time.struct_time((
+        rtc_year,          # YEAR (0–99)
+        ts.tm_mon,         # MONTH
+        ts.tm_mday,        # DAY
+        ts.tm_hour,        # HOUR
+        ts.tm_min,         # MINUTE
+        ts.tm_sec,         # SECOND
+        ts.tm_wday,        # WEEKDAY (0–6)
+        ts.tm_yday,        # YEARDAY (ignored)
+        -1                 # isdst (ignored)
+    ))
+
+    rtc.datetime = t
+    print("RTC synced from GPS:", t)
+
+
 def Aquire(Sensors):
     temps = []
     for i, sensor in enumerate(Sensors):
@@ -151,7 +198,20 @@ def PrintGPS(gps):
     print(f"Fix quality: {gps.fix_quality}")
     print("=" * 40)  # Print a separator line.
 
+def build_csv_row(gps, temps, v, p):
+    ts = gps.timestamp_utc
+    date_str = f"{ts.tm_year:04d}-{ts.tm_mon:02d}-{ts.tm_mday:02d}"
+    time_str = f"{ts.tm_hour:02d}:{ts.tm_min:02d}:{ts.tm_sec:02d}"
 
+    temp_strs = [f"{t:0.4f}" for t in temps]
+
+    v = max17.cell_voltage
+    p = max17.cell_percent
+    batt_v_str = f"{v:0.4f}"
+    batt_p_str = f"{p:0.2f}"
+
+    row = date_str + "," + time_str + "," + ",".join(temp_strs) + "," + batt_v_str + "," + batt_p_str
+    return row
 
 text = "T0: {:.2f} C".format(TempSens[0].temperature)
 
@@ -166,55 +226,117 @@ N = 0
 last_time = time.monotonic()
 rtc_lock = False
 
+
+printed = False
+
 while True:
-    # Make the display context
-    current_time = time.monotonic()
-    if current_time - last_time >= 2.0:
-        last_time = current_time
+    gps.update()   # ALWAYS update GPS
+    
+    now = time.monotonic()
+    
+    # Button edges
+    a_press = button_pressed(button_a, last_a)
+    b_press = button_pressed(button_b, last_b)
+    last_a = button_a.value
+    last_b = button_b.value
 
+    # Periodic GPS→RTC sync (when we have a fix)
+    if gps.has_fix and (now - last_rtc_sync) >= RTC_SYNC_PERIOD:
+        sync_rtc_from_gps(gps, rtc)
+        last_rtc_sync = now
+        
+    # -------------------------
+    # STATE 0 — IDLE
+    # -------------------------
+    if state == STATE_IDLE:
+        # Show idle screen
+        if not printed:
+            print("IDLE Press A")
+            printed = True
         screen = displayio.Group()
-        gps.update()
-        temps = Aquire(TempSens)
-
-        battLVLs = [max17.cell_voltage,max17.cell_percent]
-        #print(f"Battery voltage: {battLVLs[0]:.2f} Volts     Battery state: {battLVLs[1]:3.1f}%")
-        print(f"{battLVLs[0]:.5f}V\t{battLVLs[1]:3.1f}%",sep=' ',end='\t')
-        for i, temp in enumerate(temps):
-            addr_text = f"{temp:06.4f}"
-            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=20 + i * 12)
-            screen.append(text_area)
-            print(addr_text,sep=' ',end='\t')
-
-        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:4.2f}V {battLVLs[1]:3.1f}%", color=0xFFFFFF, x=5, y=122))
-
-        if gps.has_fix:
-            # We have a fix! (gps.has_fix is true)
-
-            # you must set year, mon, date, hour, min, sec and weekday
-            # yearday is not supported, isdst can be set but we don't do anything with it at this time
-            # Print out details about the fix like location, date, etc.
-            #year, mon, date, hour, min, sec, wday, yday, isdst
-            t = time.struct_time((
-                gps.timestamp_utc.tm_year,gps.timestamp_utc.tm_mon,gps.timestamp_utc.tm_mday,
-                gps.timestamp_utc.tm_hour,gps.timestamp_utc.tm_min,gps.timestamp_utc.tm_sec,
-                0, -1, -1))
-            text_area = label.Label(terminalio.FONT, text=f"{t.tm_hour}:{t.tm_min:02}:{t.tm_sec:02}", color=0xFFFFFF, x=5, y=8)
-            print(f"Zulu {t.tm_year}/{t.tm_mon}/{t.tm_mday} {t.tm_hour}:{t.tm_min:02}:{t.tm_sec:02}")  # uncomment for debugging
-            #rtc.datetime = t
-            #rtc_lock = True
-            PrintGPS(gps)
-        else:
-            # Try again if we don't have a fix yet.
-            addr_text = "No GPS fix"
-            print(addr_text)
-            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
-            screen.append(text_area)
-
-        #if gps.has_fix and rtc_lock:
-            #compare RTC and GPS and correct the RTC as needed
-        #if not gps.has_fix and rtc_lock:
-        #    addr_text = "RTC Time"
-        #    print(addr_text)
-        #    text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
-        #t = rtc.datetime
+        screen.append(label.Label(terminalio.FONT,
+                                  text="IDLE\nPress A",
+                                  color=0xFFFFFF, x=5, y=10))
         display.root_group = screen
+
+        if a_press:
+            print("Starting GPS acquisition")
+            state = STATE_GPS_WAIT
+            gps_lock_counter = 0
+            printed = False
+
+    # -------------------------
+    # STATE 1 — GPS WAIT
+    # -------------------------
+    elif state == STATE_GPS_WAIT:
+        screen = displayio.Group()
+        screen.append(label.Label(terminalio.FONT,
+                                  text="GPS: acquiring...",
+                                  color=0xFFFFFF, x=5, y=10))
+
+        if gps.has_fix and gps.timestamp_utc is not None:
+            gps_lock_counter += 1
+            screen.append(label.Label(terminalio.FONT,
+                                      text=f"Fix {gps_lock_counter}/{GPS_LOCK_REQUIRED}",
+                                      color=0xFFFFFF, x=5, y=25))
+            if gps_lock_counter >= GPS_LOCK_REQUIRED:
+                print("GPS locked. Autostart logging.")
+                state = STATE_LOGGING
+                last_log_time = now  # align logging start
+        else:
+            gps_lock_counter = 0
+
+        display.root_group = screen
+
+        if b_press:
+            print("GPS aborted. Returning to idle.")
+            state = STATE_IDLE
+
+    # -------------------------
+    # STATE 2 — LOGGING
+    # -------------------------
+    elif state == STATE_LOGGING:
+        # Toggle logging on/off with B
+        if b_press:
+            print("Logging stopped. Returning to idle.")
+            state = STATE_IDLE
+            continue
+        # 1 Hz logging
+        if (now - last_log_time) >= LOG_PERIOD:
+            last_log_time = now
+            temps = Aquire(TempSens)
+            v = max17.cell_voltage
+            p = max17.cell_percent
+            if gps.has_fix and gps.timestamp_utc is not None:
+                
+                row = build_csv_row(gps, temps, v, p)
+                print(row)  # serial monitor; later: write to SD
+            
+                screen = displayio.Group()
+                screen.append(label.Label(terminalio.FONT,
+                                          text="LOGGING",
+                                          color=0xFFFFFF, x=5, y=10))
+
+                # Display temps
+                for i, t in enumerate(temps):
+                    screen.append(label.Label(terminalio.FONT,
+                                              text=f"T{i}: {t:0.4f}",
+                                              color=0xFFFFFF, x=5, y=25 + i*12))
+
+                # Battery
+                screen.append(label.Label(terminalio.FONT,
+                                          text=f"{v:.2f}V {p:.1f}%",
+                                          color=0xFFFFFF, x=5, y=120))
+                display.root_group = screen
+                
+            else:
+                print("NOFIX")
+                screen = displayio.Group()
+                screen.append(label.Label(terminalio.FONT,
+                                          text="LOGGING\nNOFIX",
+                                          color=0xFFFFFF, x=5, y=10))
+                # Battery
+                screen.append(label.Label(terminalio.FONT,
+                                          text=f"{v:.2f}V {p:.1f}%",
+                                          color=0xFFFFFF, x=5, y=120))
+                display.root_group = screen
