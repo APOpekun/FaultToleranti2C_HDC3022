@@ -23,7 +23,7 @@ i2c = busio.I2C(board.SCL, board.SDA)
 
 rtc = PCF8523(i2c)
 
-#initialize GPS 
+#initialize GPS
 # Connect UART rx to GPS module TX, and UART tx to GPS module RX.
 tx = board.TX  # Use board.GP4 or other UART TX on Raspberry Pi Pico boards.
 rx = board.RX  # Use board.GP5 or other UART RX on Raspberry Pi Pico boards.
@@ -32,7 +32,10 @@ uart = busio.UART(tx, rx, baudrate=9600, timeout=10)
 gps = adafruit_gps.GPS(uart, debug=False)  # Use UART/pyserial
 
 # Turn on the basic GGA and RMC info (what you typically want)
-gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
+#gps.send_command(b"PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0")
+# Turn on everything (not all of it is parsed!)
+gps.send_command(b'$PMTK314,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0*28\r\n')
+
 # Set update rate to once a second (1hz) which is what you typically want.
 gps.send_command(b"PMTK220,1000")
 
@@ -48,7 +51,7 @@ display = adafruit_displayio_sh1107.SH1107(
     display_bus,
     width=HEIGHT,
     height=WIDTH,
-    rotation=90
+    rotation=270
 )
 
 #initialize the battery monitor
@@ -122,9 +125,9 @@ def safe_read(sensor):
 
 #not sure which is faster on Time return GPS or RTC
 #if RTC is faster then update RTC from GPS every ... 5 or 10 minutes? at the point where drift gets too much
-def Aquire():
+def Aquire(Sensors):
     temps = []
-    for i, sensor in enumerate(TempSens):
+    for i, sensor in enumerate(Sensors):
         t, ok = safe_read(sensor)
         sensor_health[i] = ok
         temps.append(t)
@@ -132,7 +135,7 @@ def Aquire():
     return temps
 
 def PrintGPS(gps):
-    print("=" * 40)  # Print a separator line.
+    print(gps.nmea_sentence)
     print(
         "Fix timestamp: {}/{}/{} {:02}:{:02}:{:02}".format(  # noqa: UP032
             gps.timestamp_utc.tm_mon,  # Grab parts of the time from the
@@ -143,11 +146,11 @@ def PrintGPS(gps):
             gps.timestamp_utc.tm_sec,
         )
     )
-    print(f"Latitude: {gps.latitude:.6f} degrees")
-    print(f"Longitude: {gps.longitude:.6f} degrees")
-    print(f"Precise Latitude: {gps.latitude_degrees} degs, {gps.latitude_minutes:2.4f} mins")
-    print(f"Precise Longitude: {gps.longitude_degrees} degs, {gps.longitude_minutes:2.4f} mins")
+    print(f"Lat/Long: {gps.latitude:.6f}°,{gps.longitude:.6f}°")
+    print(f"{gps.latitude_degrees}°, {gps.latitude_minutes:2.4f}', {gps.longitude_degrees}°, {gps.longitude_minutes:2.4f}'")
     print(f"Fix quality: {gps.fix_quality}")
+    print("=" * 40)  # Print a separator line.
+
 
 
 text = "T0: {:.2f} C".format(TempSens[0].temperature)
@@ -162,64 +165,56 @@ text_area = label.Label(
 N = 0
 last_time = time.monotonic()
 rtc_lock = False
+
 while True:
     # Make the display context
-    screen = displayio.Group()
-    gps.update()
     current_time = time.monotonic()
-    
-    if current_time - last_time >= 1.0:
-        battLVLs = [max17.cell_voltage,max17.cell_percent]
-        print(f"Battery voltage: {battLVLs[0]:.2f} Volts")
-        print(f"Battery state  : {battLVLs[1]:.1f} %")
-        print("")
-        
-        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:4.2f}V {battLVLs[1]:3.0f}%", color=0xFFFFFF, x=5, y=122))
+    if current_time - last_time >= 2.0:
         last_time = current_time
-        
-        if not gps.has_fix and not rtc_lock:
-            # Try again if we don't have a fix yet.
-            
-            addr_text = "No GPS fix"
-            print(addr_text)
-            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
-            
+
+        screen = displayio.Group()
+        gps.update()
+        temps = Aquire(TempSens)
+
+        battLVLs = [max17.cell_voltage,max17.cell_percent]
+        #print(f"Battery voltage: {battLVLs[0]:.2f} Volts     Battery state: {battLVLs[1]:3.1f}%")
+        print(f"{battLVLs[0]:.5f}V\t{battLVLs[1]:3.1f}%",sep=' ',end='\t')
+        for i, temp in enumerate(temps):
+            addr_text = f"{temp:06.4f}"
+            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=20 + i * 12)
             screen.append(text_area)
-            display.root_group = screen
-            
-            
-        if gps.has_fix and not rtc_lock:
+            print(addr_text,sep=' ',end='\t')
+
+        screen.append(label.Label(terminalio.FONT, text=f"{battLVLs[0]:4.2f}V {battLVLs[1]:3.1f}%", color=0xFFFFFF, x=5, y=122))
+
+        if gps.has_fix:
             # We have a fix! (gps.has_fix is true)
-            PrintGPS(gps)
+
             # you must set year, mon, date, hour, min, sec and weekday
             # yearday is not supported, isdst can be set but we don't do anything with it at this time
             # Print out details about the fix like location, date, etc.
             #year, mon, date, hour, min, sec, wday, yday, isdst
             t = time.struct_time((
-                gps.timestamp_utc.tm_year,
-                gps.timestamp_utc.tm_mon,
-                gps.timestamp_utc.tm_mday,
-                gps.timestamp_utc.tm_hour,
-                gps.timestamp_utc.tm_min,
-                gps.timestamp_utc.tm_sec,
+                gps.timestamp_utc.tm_year,gps.timestamp_utc.tm_mon,gps.timestamp_utc.tm_mday,
+                gps.timestamp_utc.tm_hour,gps.timestamp_utc.tm_min,gps.timestamp_utc.tm_sec,
                 0, -1, -1))
-            print("Setting time to:", t)  # uncomment for debugging
-            rtc.datetime = t
-            rtc_lock = True
-            
-        #if gps.has_fix and rtc_lock:
-            #compare RTC and GPS and correct the RTC as needed
-        if not gps.has_fix and rtc_lock:
-            addr_text = "RTC Time"
+            text_area = label.Label(terminalio.FONT, text=f"{t.tm_hour}:{t.tm_min:02}:{t.tm_sec:02}", color=0xFFFFFF, x=5, y=8)
+            print(f"Zulu {t.tm_year}/{t.tm_mon}/{t.tm_mday} {t.tm_hour}:{t.tm_min:02}:{t.tm_sec:02}")  # uncomment for debugging
+            #rtc.datetime = t
+            #rtc_lock = True
+            PrintGPS(gps)
+        else:
+            # Try again if we don't have a fix yet.
+            addr_text = "No GPS fix"
             print(addr_text)
             text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
-        temps = Aquire()
-        t = rtc.datetime
-        
-        for i, temp in enumerate(temps):
-            addr_text = f"{temp:06.4f}"
-            text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=20 + i * 12)
             screen.append(text_area)
-            
-        text_area = label.Label(terminalio.FONT, text=f"{t.tm_hour}:{t.tm_min:02}:{t.tm_sec:02}", color=0xFFFFFF, x=5, y=100)
+
+        #if gps.has_fix and rtc_lock:
+            #compare RTC and GPS and correct the RTC as needed
+        #if not gps.has_fix and rtc_lock:
+        #    addr_text = "RTC Time"
+        #    print(addr_text)
+        #    text_area = label.Label(terminalio.FONT, text=addr_text, color=0xFFFFFF, x=5, y=8)
+        #t = rtc.datetime
         display.root_group = screen
