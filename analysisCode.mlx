@@ -1,0 +1,182 @@
+clear
+% Import data from text file
+TimeTemp = readtable("TimeTemp.csv");
+
+allsensors = ["Temp1","Temp2","Temp3","Temp4","Temp5","Temp6","Temp7","Temp8"];
+%TimeTemp{:,"Days"}=datetime(TimeTemp{1,"now"},'ConvertFrom','posixtime','timezone','America/Chicago');
+TimeTemp{:,"Days"} = TimeTemp{:,"now"}/(60*60*24) + datenum(1970,1,1,-5,0,0);%use a -5 offset for UCT to CST
+%TimeTemp{:,"DeltaT"}=TimeTemp{:,"now"}-TimeTemp{1,"now"};
+TimeTemp{:,"median"}=median(TimeTemp{:,allsensors},2);
+
+%take the moving average after eliminating outliers from the moving median
+
+% 1. Compute deviation from median
+TimeTemp{:,"MedianDifference"} = abs(TimeTemp{:,allsensors} - TimeTemp{:,"median"});
+% 2. Build mask of good sensors
+TimeTemp{:,"mask"} = TimeTemp{:,"MedianDifference"} <= 0.25;   % Nx8 logical
+% 3. Zero out bad sensors
+TimeTemp{:,"goodVals"} = TimeTemp{:,allsensors} .* TimeTemp{:,"mask"};
+% 4. Count good sensors per row
+TimeTemp{:,"numGood"} = sum(TimeTemp{:,"mask"}, 2);
+% 5. Compute robust average
+robustAvg = sum(TimeTemp{:,"goodVals"}, 2) ./ TimeTemp{:,"numGood"};
+% 6. Handle rows with zero good sensors
+robustAvg(TimeTemp{:,"numGood"} == 0) = NaN;
+TimeTemp{:,"robustAvg"}=robustAvg
+clear robustAvg
+
+
+plotselect = 2
+if plotselect > 0
+    figure()
+    hold off
+    if plotselect == 1 | plotselect == 3
+        dotsize = 4;
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp1"},dotsize,"filled")
+        hold on
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp2"},dotsize,"filled")
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp3"},dotsize,"filled")
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp4"},dotsize,"filled")
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp5"},dotsize,"filled")
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp6"},dotsize,"filled")
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp7"},dotsize,"filled")
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"Temp8"},dotsize,"filled")
+        
+    end
+    if plotselect == 2 | plotselect == 3
+        scatter(TimeTemp{:,"Days"},TimeTemp{:,"robustAvg"})
+    end
+    hold off
+    legend()
+    ylim([20 24])
+    datetick('x', 'HH:MM:SS');   % or 'yyyy-mm-dd HH:MM:SS'
+    xlabel('Time');
+    ylabel('Temperature (°C)');
+    grid on
+end
+
+runAllanAll = false;
+if runAllanAll
+    %Rolling ALLAN
+    maxpts = 256;
+    tau=unique(round(2.^(0:0.01:log2(maxpts/2))));
+    seconds=height(TimeTemp)-maxpts;
+    avar = zeros([length(tau) 8 seconds]);
+    slices = 1:seconds;
+
+    for i = slices
+        avar(:,:,i)=allanvar(TimeTemp{i:i+maxpts,allsensors},tau);
+    end
+
+    if false
+        plot(tau, sqrt(avar(:,:,1)));
+        xlabel('\tau');
+        ylabel('Allan deviation');
+        legend("T1","T2","T3","T4","T5","T6","T7","T8","Location","northwest");
+        set(gca,'XScale','log','YScale','log');
+    end
+
+    if true
+        adev_s1 = sqrt(avar(:,sensor,:));
+        adev_s1 = squeeze(adev_s1);
+        
+        imagesc(slices, tau, log10(adev_s1));
+        set(gca,'YDir','normal','YScale','log');
+        caxis([-2.2 -0.3]);
+        xlabel('Window index');
+        ylabel('\tau');
+        colorbar;
+        title('Rolling Allan Deviation (Sensor 1)');
+    
+        hold on;
+        xline(k, 'w-', 'LineWidth', 2);   % white vertical hairline
+        hold off;
+    end
+    if true
+        plot(tau, avar(:,sensor,k));
+        xlabel('\tau');
+        ylabel('Allan Variance');
+        %legend("T1","T2","T3","T4","T5","T6","T7","T8","Location","northwest");
+        set(gca,'XScale','log','YScale','log');
+    end
+    if true
+        [TIME, TAU] = meshgrid(slices, tau);
+        surf(TIME, TAU, log10(squeeze(avar(:,sensor,:))), 'EdgeColor','none');
+        view(45,40);
+    end
+end
+
+
+%Rolling ALLAN of the average
+maxpts = 128;
+tau=unique(round(2.^(0:0.01:log2(maxpts/2))));
+seconds=height(TimeTemp)-maxpts;
+avar = zeros([length(tau) seconds]);
+slices = 1:seconds;
+k=1
+
+for i = slices
+    avar(:,i)=allanvar(TimeTemp{i:i+maxpts,"robustAvg"},tau);
+end
+
+figure()
+subplot(2,1,1)
+imagesc(slices, tau, log10(avar));
+set(gca,'YDir','normal','YScale','log');
+caxis([min(log10(avar),[],"all") max(log10(avar),[],"all")]);
+xlabel('Window index');
+ylabel('\tau');
+colorbar;
+title('Rolling Allan Deviation (Sensor 1)');
+
+hold on;
+xline(k, 'w-', 'LineWidth', 2);   % white vertical hairline
+hold off;
+
+subplot(2,1,2)
+scatter(tau, avar(:,k));
+xlabel('\tau');
+ylabel('Allan Variance');
+set(gca,'XScale','log','YScale','log');
+grid off
+
+
+figure()
+[TIME, TAU] = meshgrid(slices, tau);
+[minAvar,idx]=min(avar(:,:),[],1);
+surf(TIME, TAU, log10(avar), 'EdgeColor','none');
+hold on
+scatter3(slices,tau(idx),log10(minAvar))
+hold off
+set(gca,'YScale','log');
+xlabel('Window index');
+ylabel('\tau');
+zlabel('log_{10}(\sigma(\tau))');
+title('Rolling Allan Deviation Surface');
+colormap turbo;
+colorbar;
+view(45,40);
+
+figure()
+scatter(slices,tau(idx))
+set(gca,'YScale','log');
+xlabel('Window index');
+ylabel('\tau');
+
+figure()
+subplot(2,2,1)
+scatter(TimeTemp{:,"Days"},TimeTemp{:,"robustAvg"})
+ylim([21 23.5])
+datetick('x', 'HH:MM:SS');   % or 'yyyy-mm-dd HH:MM:SS'
+xlabel('Time');
+ylabel('Temperature (°C)');
+grid on
+subplot(2,2,3)
+scatter(TimeTemp{1:end-1,"Days"},diff(TimeTemp{:,"robustAvg"}))
+ylim([-1 1]*0.15)
+datetick('x', 'HH:MM:SS');   % or 'yyyy-mm-dd HH:MM:SS'
+xlabel('Time');
+ylabel('Temperature (°C)');
+grid on
+
+
