@@ -21,35 +21,34 @@ def read_MCP9808(bus,address):
             return ((data[0] & 0x0F) * 16 + data[1] / 16.0) - 256
         return data[0] * 16 + data[1] / 16.0
 SECONDS = 0
-MINUTES = 5
-HOURS = 12
+MINUTES = 0
+HOURS = 24
 DAYS = 0
 RUNTIME = SECONDS + 60*(MINUTES + 60*(HOURS + 24*DAYS))+1 #SECONDS
 INTERVAL = 1 #SECONDS
 
-with open("TimeTemp.csv","w",newline="") as f:
-    then = time.clock_gettime(time.CLOCK_REALTIME)
+then = time.clock_gettime(time.CLOCK_REALTIME)
+with open(f"TimeTemp_{time.strftime('%Y_%b_%d_%a_%H_%M_%S',time.localtime(then))}.csv","w",newline="") as f:
     start = then
     ts = time.strftime("%Y %b %d %a %H %M %S",time.localtime(start))
     writer = csv.writer(f)
-    
     writer.writerow(["now","Temp1","Temp2","Temp3","Temp4","Temp5","Temp6","Temp7","Temp8"])
     while True:
         try:
             row = []
             now = time.clock_gettime(time.CLOCK_REALTIME)
-            for i in range(8):
-                    row.append(read_MCP9808(i2c, address=0x18 + i))
             if (now - start)>RUNTIME:
-                end = time.clock_gettime(time.CLOCK_REALTIME)
-                ts = time.strftime("%Y %b %d %a %H %M %S",time.localtime(end))
-                writer.writerow(["Timestamp:",ts,"\tnow:",end])
+                # end = time.clock_gettime(time.CLOCK_REALTIME)
+                # ts = time.strftime("%Y %b %d %a %H %M %S",time.localtime(end))
+                # writer.writerow(["Timestamp:",ts,"\tnow:",end])
                 break
             if (now - then)>INTERVAL:
+                for i in range(8):
+                    row.append(read_MCP9808(i2c, address=0x18 + i))
                 row = [now]+row
-                #print(row)
+                print(row)
                 writer.writerow(row)
                 then = now
         except Exception as e:
             print(e)
-
+f.close()
