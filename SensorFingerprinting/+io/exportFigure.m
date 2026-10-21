@@ -1,0 +1,9 @@
+function exportFigure(fig,outputDir,fileName)
+    if ~isfolder(outputDir)
+        mkdir(outputDir);
+    end
+    exportgraphics( ...
+        fig, ...
+        fullfile(outputDir,fileName + ".pdf"), ...
+        "ContentType","vector");
+end
